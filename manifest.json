@@ -1,0 +1,16 @@
+{
+  "name": "Stick Souls",
+  "short_name": "Stick Souls",
+  "description": "Metroidvania de acción con stickmans en un reino sin alma.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#050507",
+  "theme_color": "#0b0b10",
+  "lang": "es",
+  "icons": [
+    { "src": "assets/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

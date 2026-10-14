@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b10">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Stick Souls: metroidvania de acción con stickmans. Explora un reino subterráneo sin alma.">
+  <title>Stick Souls</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/icono-192.png">
+  <link rel="apple-touch-icon" href="assets/icono-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="stage">
+      <canvas id="game" aria-label="Stick Souls"></canvas>
+      <div id="hud-btns">
+        <button class="hb" data-cmd="map" aria-label="Mapa" title="Mapa (M)">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 3v15M15 6v15" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>
+        <button class="hb" data-cmd="pause" aria-label="Pausa" title="Pausa (Esc)">
+          <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <div id="area-title"><div class="at-zone"></div><div class="at-line"></div><div class="at-room"></div></div>
+      <div id="room-title"></div>
+      <div id="bossbar"><div class="bb-name"></div><div class="bb-track"><div class="bb-lag"></div><div class="bb-fill"></div></div></div>
+      <div id="toast"></div>
+    </div>
+
+    <div id="touch" aria-hidden="true">
+      <div class="tb dpad" id="t-up" data-act="up">▲</div>
+      <div class="tb dpad" id="t-left" data-act="left">◀</div>
+      <div class="tb dpad" id="t-right" data-act="right">▶</div>
+      <div class="tb dpad" id="t-down" data-act="down">▼</div>
+      <div class="tb act" id="t-special" data-act="special"><span>✦</span><small>Hab.</small></div>
+      <div class="tb act" id="t-dodge" data-act="dodge"><span>»</span><small>Esquiva</small></div>
+      <div class="tb act" id="t-attack" data-act="attack"><span>⚔</span><small>Ataque</small></div>
+      <div class="tb act big" id="t-jump" data-act="jump"><span>⤒</span><small>Salto</small></div>
+    </div>
+  </div>
+
+  <div id="ui">
+    <section id="m-main" class="screen menu main">
+      <h1 class="title">STICK <span>SOULS</span></h1>
+      <p class="subtitle">Un reino sin alma te espera bajo la ceniza</p>
+      <button data-cmd="new" class="primary">Jugar</button>
+      <button data-cmd="continue" id="btn-continue">Continuar</button>
+      <button data-cmd="controls">Controles</button>
+      <button data-cmd="options">Opciones</button>
+      <p class="foot">Fase 1 · Refugio de Ceniza y Bosque Marchito</p>
+    </section>
+
+    <section id="m-pause" class="screen menu">
+      <h2>Pausa</h2>
+      <button data-cmd="resume" class="primary">Reanudar</button>
+      <button data-cmd="map">Mapa</button>
+      <button data-cmd="inventory">Inventario</button>
+      <button data-cmd="options">Opciones</button>
+      <button data-cmd="controls">Controles</button>
+      <button data-cmd="rebench">Volver al último banco</button>
+      <button data-cmd="quit">Menú principal</button>
+    </section>
+
+    <section id="m-options" class="screen menu">
+      <h2>Opciones</h2>
+      <label class="row"><span>Volumen</span><input id="o-vol" type="range" min="0" max="1" step="0.05"></label>
+      <label class="row"><span>Silenciar</span><input id="o-mute" type="checkbox"></label>
+      <label class="row"><span>Vibración (celular)</span><input id="o-vib" type="checkbox"></label>
+      <div class="row"><span>Tamaño de botones táctiles</span>
+        <div class="seg"><button data-cmd="tsize" data-v="S">S</button><button data-cmd="tsize" data-v="M">M</button><button data-cmd="tsize" data-v="L">L</button></div>
+      </div>
+      <div class="row"><span>Botones táctiles</span>
+        <div class="seg"><button data-cmd="tmode" data-v="auto">Auto</button><button data-cmd="tmode" data-v="on">Siempre</button><button data-cmd="tmode" data-v="off">Ocultar</button></div>
+      </div>
+      <button data-cmd="delete" id="o-delete" class="danger">Borrar partida</button>
+      <button data-cmd="back">Volver</button>
+    </section>
+
+    <section id="m-controls" class="screen menu wide">
+      <h2>Controles</h2>
+      <table class="ctl"><tbody id="ctl-table"></tbody></table>
+      <p class="muted small">Ratón: clic izquierdo también ataca. Mantén arriba o abajo al atacar para golpear en esa dirección. Abajo + Saltar baja de una plataforma.</p>
+      <h3>Celular</h3>
+      <p class="muted small">◀ ▶ moverse · ▲ interactuar y golpe hacia arriba · ▼ golpe hacia abajo en el aire · <b>Salto</b> (mantén para saltar más alto) · <b>Ataque</b> · <b>Esquiva</b> · <b>Hab.</b> mantén para el golpe cargado. Puedes pulsar varios botones a la vez y deslizar el dedo entre ellos.</p>
+      <button data-cmd="reset-keys">Restablecer teclas</button>
+      <button data-cmd="back">Volver</button>
+    </section>
+
+    <section id="m-inventory" class="screen menu wide">
+      <h2>Inventario</h2>
+      <div id="inv-body"></div>
+      <button data-cmd="back">Volver</button>
+    </section>
+
+    <section id="m-map" class="screen map">
+      <div class="map-head"><h2>Mapa</h2><span id="map-where"></span></div>
+      <canvas id="map-canvas"></canvas>
+      <div class="map-legend">
+        <span><i class="lg bench"></i>Banco</span><span><i class="lg you"></i>Tú</span><span><i class="lg eco"></i>Eco</span>
+        <span>☠ Jefe</span><span>? Sin explorar</span>
+      </div>
+      <button data-cmd="close-map">Cerrar</button>
+    </section>
+
+    <section id="m-bench" class="screen menu"></section>
+
+    <section id="m-confirm" class="screen menu small">
+      <p id="c-text"></p>
+      <button data-cmd="confirm-yes" class="danger">Sí</button>
+      <button data-cmd="confirm-no">No</button>
+    </section>
+
+    <section id="m-end" class="screen menu wide">
+      <h2>Fin de la primera fase</h2>
+      <div id="end-body"></div>
+      <button data-cmd="end-continue" class="primary">Seguir explorando</button>
+      <button data-cmd="end-new">Nueva partida</button>
+      <button data-cmd="end-menu">Menú principal</button>
+    </section>
+
+    <div id="dialog" class="dialog"><div id="d-who"></div><div id="d-text"></div><div class="d-next">▼</div></div>
+    <div id="banner" class="banner"><div id="bn-title"></div><div id="bn-name"></div><div id="bn-desc"></div><div class="bn-hint">Pulsa Saltar o toca para continuar</div></div>
+  </div>
+
+  <noscript><p class="noscript">Stick Souls necesita JavaScript activado.</p></noscript>
+
+  <script src="js/core.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/rooms.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/bg.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/enemies.js"></script>
+  <script src="js/boss.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>
