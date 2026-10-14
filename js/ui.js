@@ -143,7 +143,7 @@
         break;
       case "up-hp": if (G.upgrade("hp")) U.renderBench(); break;
       case "up-atk": if (G.upgrade("atk")) U.renderBench(); break;
-      case "bench-leave": U.resume(); break;
+      case "bench-leave": U.resume(); if (G.player && G.player.state === "sit") G.player.setState("normal"); break;
       case "close-map": U.back(); break;
       case "end-continue": U.resume(); break;
       case "end-menu": G.toTitle(); break;

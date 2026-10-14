@@ -69,9 +69,19 @@
       this.updateScarf(dt);
       return;
     }
-    if (this.state === "sit" || this.state === "hazard" || this.state === "frozen") {
+    if (this.state === "sit") {
+      this.vx = 0; this.vy = 0;
+      // levantarse con cualquier acción de movimiento
+      if (this.stateT > 0.25 && (I.down.left || I.down.right || I.pressed.jump || I.pressed.attack || I.pressed.dodge || I.pressed.down)) {
+        this.setState("normal");
+        this.y -= 1;
+        if (I.down.left) this.dir = -1; else if (I.down.right) this.dir = 1;
+      }
+      this.updateScarf(dt);
+      return;
+    }
+    if (this.state === "hazard" || this.state === "frozen") {
       this.vx = 0;
-      if (this.state === "sit") this.vy = 0;
       this.updateScarf(dt);
       return;
     }
