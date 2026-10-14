@@ -1,204 +1,92 @@
 /* =====================================================================
-   Fondos atmosféricos: capas con paralaje dibujadas a baja resolución
-   y ampliadas (efecto difuminado barato), bandadas de aves, rayos de
-   luz, sol velado, niebla, viñeta y partículas de ambiente por zona.
+   Fondos: la pintura de cada zona (assets/arte) con paralaje suave,
+   rayos de sol que se mueven, motas de polvo que brillan al cruzar la
+   luz, niebla que avanza, brasas o luciérnagas, aves, cadenas y ramas
+   en primer plano, niebla baja y viñeta.
    ===================================================================== */
 (function () {
   "use strict";
   var SS = window.SS;
-  var LW = 1280, LH = 560;   // tamaño de cada capa en unidades del mundo (se repite en horizontal)
 
-  var BG = (SS.BG = { cache: {}, flocks: [], flockT: 2, ambT: 0 });
+  var BG = (SS.BG = { cache: {}, flocks: [], flockT: 2, ambT: 0, motes: [], beam: null, fog: null });
 
-  function makeLayer(div) {
+  /** Versión procesada de la pintura: algo más oscura y suave, para que
+      el escenario de juego se distinga bien por delante. Se hace una vez. */
+  function painted(zoneId) {
+    if (BG.cache[zoneId] !== undefined) return BG.cache[zoneId];
+    var z = SS.ZONES[zoneId], im = SS.img(z.img);
+    if (!im) { BG.cache[zoneId] = null; return null; }
     var c = document.createElement("canvas");
-    c.width = Math.ceil(LW / div);
-    c.height = Math.ceil(LH / div);
+    c.width = im.width; c.height = im.height;
     var g = c.getContext("2d");
-    g.scale(1 / div, 1 / div);
-    return { c: c, g: g };
+    var hasFilter = typeof g.filter === "string";
+    try { if (hasFilter) g.filter = "blur(1.1px) brightness(0.78) saturate(0.85)"; } catch (e) { hasFilter = false; }
+    g.drawImage(im, 0, 0);
+    if (hasFilter) g.filter = "none";
+    else { g.fillStyle = "rgba(0,0,0,0.22)"; g.fillRect(0, 0, c.width, c.height); }
+    g.fillStyle = z.bgTint;
+    g.fillRect(0, 0, c.width, c.height);
+    BG.cache[zoneId] = c;
+    return c;
   }
 
-  /** Dibuja una forma en x y, si cruza el borde, también al otro lado (capa sin costuras). */
-  function wrap(x, w, fn) {
-    fn(x);
-    if (x < w) fn(x + LW);
-    if (x + w > LW - w) fn(x - LW);
+  /** Un rayo de luz: degradado suave en los bordes y a lo largo. */
+  function beamSprite() {
+    if (BG.beam) return BG.beam;
+    var c = document.createElement("canvas");
+    c.width = 64; c.height = 256;
+    var g = c.getContext("2d");
+    var gx = g.createLinearGradient(0, 0, 64, 0);
+    gx.addColorStop(0, "rgba(255,255,255,0)");
+    gx.addColorStop(0.5, "rgba(255,255,255,1)");
+    gx.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gx;
+    g.fillRect(0, 0, 64, 256);
+    g.globalCompositeOperation = "destination-in";
+    var gy = g.createLinearGradient(0, 0, 0, 256);
+    gy.addColorStop(0, "rgba(0,0,0,0.9)");
+    gy.addColorStop(0.6, "rgba(0,0,0,0.45)");
+    gy.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = gy;
+    g.fillRect(0, 0, 64, 256);
+    BG.beam = c;
+    return c;
   }
 
-  function ridge(g, color, base, amp, f1, f2, ph) {
-    g.fillStyle = color;
-    g.beginPath();
-    g.moveTo(0, LH);
-    for (var x = 0; x <= LW; x += 16) {
-      var t = x / LW * Math.PI * 2;
-      g.lineTo(x, base - Math.sin(t * f1 + ph) * amp - Math.sin(t * f2 + ph * 2.3) * amp * 0.45);
+  /** Banda de niebla con manchas suaves (se repite en horizontal). */
+  function fogSprite() {
+    if (BG.fog) return BG.fog;
+    var c = document.createElement("canvas");
+    c.width = 512; c.height = 96;
+    var g = c.getContext("2d"), rng = SS.makeRng(99);
+    for (var i = 0; i < 40; i++) {
+      var x = rng() * 512, y = 30 + rng() * 40, r = 20 + rng() * 40;
+      for (var k = -1; k <= 1; k++) {
+        var grd = g.createRadialGradient(x + k * 512, y, 0, x + k * 512, y, r);
+        grd.addColorStop(0, "rgba(255,255,255,0.22)");
+        grd.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = grd;
+        g.fillRect(x + k * 512 - r, y - r, r * 2, r * 2);
+      }
     }
-    g.lineTo(LW, LH);
-    g.closePath();
-    g.fill();
+    BG.fog = c;
+    return c;
   }
 
-  /* ---------------------------------------------------------- ruinas */
-  function buildRuins(z, rng) {
-    var far = makeLayer(5), mid = makeLayer(2.6), near = makeLayer(1.3), i;
-    var g = far.g;
-    ridge(g, z.bg[0], LH - 150, 26, 2, 5, rng() * 6);
-    g.fillStyle = z.bg[0];
-    for (i = 0; i < 11; i++) {
-      var tx = rng() * LW, tw = 26 + rng() * 46, th = 150 + rng() * 260;
-      wrap(tx, tw, function (x) {
-        var top = LH - 140 - th;
-        g.beginPath();
-        g.moveTo(x, LH);
-        g.lineTo(x, top + 20);
-        var steps = 4 + Math.floor(rng() * 4);
-        for (var s = 0; s <= steps; s++) g.lineTo(x + tw * s / steps, top + (s % 2 ? 0 : 18) + rng() * 22);
-        g.lineTo(x + tw, LH);
-        g.fill();
-        if (rng() > 0.5) { g.fillRect(x + tw * 0.3, top - 40, tw * 0.4, 50); }
-      });
-    }
-    g = mid.g;
-    ridge(g, z.bg[1], LH - 70, 16, 3, 7, rng() * 6);
-    g.fillStyle = z.bg[1];
-    g.strokeStyle = z.bg[1];
-    for (i = 0; i < 7; i++) {
-      var ax = rng() * LW, span = 70 + rng() * 60, pw = 14 + rng() * 8, ph = 170 + rng() * 120;
-      var broken = rng() > 0.55;
-      wrap(ax, span + pw, function (x) {
-        g.fillRect(x, LH - 60 - ph, pw, ph + 60);
-        var ph2 = broken ? ph * (0.45 + rng() * 0.2) : ph;
-        g.fillRect(x + span, LH - 60 - ph2, pw, ph2 + 60);
-        if (!broken) {
-          g.lineWidth = 14;
-          g.beginPath();
-          g.arc(x + span / 2 + pw / 2, LH - 60 - ph, span / 2, Math.PI, 0);
-          g.stroke();
-        }
-        g.fillRect(x - 6, LH - 60 - ph - 8, pw + 12, 10);
-      });
-    }
-    g = near.g;
-    ridge(g, z.bg[2], LH - 26, 10, 4, 9, rng() * 6);
-    g.fillStyle = z.bg[2];
-    g.strokeStyle = z.bg[2];
-    g.lineCap = "round";
-    for (i = 0; i < 16; i++) {
-      var bx = rng() * LW;
-      wrap(bx, 60, function (x) {
-        var r = 14 + rng() * 26;
-        g.beginPath(); g.ellipse(x, LH - 20, r * 1.6, r, 0, Math.PI, 0); g.fill();
-        if (rng() > 0.5) {
-          g.lineWidth = 2;
-          g.beginPath();
-          var bh = 30 + rng() * 40;
-          g.moveTo(x, LH - 30); g.lineTo(x + 4, LH - 30 - bh);
-          g.moveTo(x + 2, LH - 30 - bh * 0.5); g.lineTo(x + 16, LH - 40 - bh * 0.8);
-          g.moveTo(x + 3, LH - 30 - bh * 0.7); g.lineTo(x - 10, LH - 36 - bh);
-          g.stroke();
-        }
-      });
-    }
-    return [
-      { img: far.c, f: 0.12, alpha: 0.9 },
-      { img: mid.c, f: 0.3, alpha: 0.95 },
-      { img: near.c, f: 0.55, alpha: 1 }
-    ];
-  }
-
-  /* ----------------------------------------------------------- bosque */
-  function tree(g, x, y, len, ang, wid, depth, rng) {
-    var x2 = x + Math.sin(ang) * len, y2 = y - Math.cos(ang) * len;
-    g.lineWidth = wid;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.quadraticCurveTo(x + Math.sin(ang + 0.4) * len * 0.5, y - Math.cos(ang) * len * 0.5, x2, y2);
-    g.stroke();
-    if (depth <= 0) return;
-    var n = 2 + (rng() > 0.6 ? 1 : 0);
-    for (var i = 0; i < n; i++) {
-      tree(g, x2, y2, len * (0.55 + rng() * 0.2), ang + (rng() - 0.5) * 1.5, wid * 0.62, depth - 1, rng);
-    }
-  }
-
-  function buildForest(z, rng) {
-    var far = makeLayer(5), mid = makeLayer(2.4), near = makeLayer(1.3), i;
-    var g = far.g;
-    g.fillStyle = z.bg[0];
-    for (i = 0; i < 30; i++) {
-      var fx = rng() * LW, fw = 7 + rng() * 14;
-      wrap(fx, fw, function (x) {
-        g.beginPath();
-        g.moveTo(x, LH); g.lineTo(x + fw * 0.2, 0); g.lineTo(x + fw * 0.8, 0); g.lineTo(x + fw, LH);
-        g.fill();
-      });
-    }
-    for (i = 0; i < 40; i++) {
-      var cx = rng() * LW, cr = 30 + rng() * 60;
-      wrap(cx, cr, function (x) { g.beginPath(); g.arc(x, 20 + rng() * 120, cr, 0, Math.PI * 2); g.fill(); });
-    }
-    ridge(g, z.bg[0], LH - 110, 18, 2, 6, rng() * 6);
-
-    g = mid.g;
-    g.strokeStyle = z.bg[1];
-    g.fillStyle = z.bg[1];
-    g.lineCap = "round";
-    for (i = 0; i < 8; i++) {
-      var tx = 40 + (i / 8) * LW + rng() * 80;
-      wrap(tx, 140, function (x) { tree(g, x, LH - 40, 120 + rng() * 80, (rng() - 0.5) * 0.25, 14 + rng() * 8, 4, rng); });
-    }
-    ridge(g, z.bg[1], LH - 50, 14, 3, 8, rng() * 6);
-
-    g = near.g;
-    g.strokeStyle = z.bg[2];
-    g.fillStyle = z.bg[2];
-    g.lineCap = "round";
-    ridge(g, z.bg[2], LH - 18, 8, 5, 11, rng() * 6);
-    g.lineWidth = 2;
-    for (i = 0; i < 220; i++) {
-      var gx = rng() * LW, gh = 10 + rng() * 34;
-      g.beginPath();
-      g.moveTo(gx, LH - 14);
-      g.quadraticCurveTo(gx + 3, LH - 14 - gh * 0.6, gx + (rng() - 0.5) * 12, LH - 14 - gh);
-      g.stroke();
-    }
-    g.lineWidth = 1.6;
-    for (i = 0; i < 26; i++) {
-      var vx = rng() * LW, vl = 40 + rng() * 140;
-      g.beginPath();
-      g.moveTo(vx, 0);
-      g.bezierCurveTo(vx + 8, vl * 0.3, vx - 8, vl * 0.7, vx + 3, vl);
-      g.stroke();
-      g.beginPath(); g.ellipse(vx + 3, vl, 3, 5, 0.3, 0, Math.PI * 2); g.fill();
-    }
-    return [
-      { img: far.c, f: 0.1, alpha: 0.85 },
-      { img: mid.c, f: 0.28, alpha: 0.95 },
-      { img: near.c, f: 0.55, alpha: 1 }
-    ];
-  }
-
-  BG.get = function (zoneId) {
-    if (BG.cache[zoneId]) return BG.cache[zoneId];
-    var z = SS.ZONES[zoneId];
-    var rng = SS.makeRng(z.seed);
-    var layers = z.layers === "forest" ? buildForest(z, rng) : buildRuins(z, rng);
-    BG.cache[zoneId] = layers;
-    return layers;
+  BG.reset = function () {
+    BG.flocks.length = 0; BG.flockT = 1 + Math.random() * 2;
+    BG.motes.length = 0;
   };
 
-  BG.reset = function () { BG.flocks.length = 0; BG.flockT = 1 + Math.random() * 2; };
-
   /* ---------------------------------------------------------- aves */
-  BG.update = function (dt, z, vw, vh) {
-    if (z.birds && !z.noBirds) {
+  BG.update = function (dt, z, vw, vh, room) {
+    if (z.birds && !(room && room.def.dark)) {
       BG.flockT -= dt;
       if (BG.flockT <= 0) {
         BG.flockT = 6 + Math.random() * 9;
         var dir = Math.random() < 0.5 ? 1 : -1;
         var n = 3 + Math.floor(Math.random() * 5);
-        var y = vh * (0.1 + Math.random() * 0.3);
+        var y = vh * (0.08 + Math.random() * 0.3);
         var sp = 34 + Math.random() * 30, sc = 0.7 + Math.random() * 0.6;
         var birds = [];
         for (var i = 0; i < n; i++) {
@@ -215,7 +103,20 @@
       fl.y += Math.sin(fl.t * 0.7) * 6 * dt;
       if ((fl.dir > 0 && fl.x > vw + 200) || (fl.dir < 0 && fl.x < -200)) BG.flocks.splice(f, 1);
     }
+    // motas de polvo en pantalla (flotan y brillan al cruzar un rayo)
+    while (BG.motes.length < 46) {
+      BG.motes.push({ x: Math.random() * vw, y: Math.random() * vh, vx: SS.rand(-4, 4), vy: SS.rand(-3, 5), s: SS.rand(0.6, 1.6), ph: Math.random() * 6 });
+    }
+    for (var m = 0; m < BG.motes.length; m++) {
+      var mo = BG.motes[m];
+      mo.x += (mo.vx + Math.sin(mo.ph + fl2(m)) * 3) * dt;
+      mo.y += mo.vy * dt;
+      mo.ph += dt * 0.6;
+      if (mo.x < -10) mo.x += vw + 20; else if (mo.x > vw + 10) mo.x -= vw + 20;
+      if (mo.y < -10) mo.y += vh + 20; else if (mo.y > vh + 10) mo.y -= vh + 20;
+    }
   };
+  function fl2(i) { return i * 1.7; }
 
   function drawBird(ctx, x, y, s, wing) {
     ctx.beginPath();
@@ -226,53 +127,97 @@
   }
   SS.drawBird = drawBird;
 
+  /** Posiciones de los rayos (en pantalla). Se mueven despacio y respiran. */
+  function beams(room, camX, vw, time) {
+    var out = [], n = room.zoneId === "bosque" ? 4 : 3;
+    for (var r = 0; r < n; r++) {
+      var base = (r + 0.5) / n * (vw + 260) - 130;
+      var x = base + Math.sin(time * 0.06 + r * 2.1) * 70 - (camX * 0.06 % 90);
+      var w = 34 + Math.sin(time * 0.37 + r * 1.3) * 12 + r * 6;
+      var a = 0.55 + 0.25 * Math.sin(time * 0.5 + r * 1.9) + 0.12 * Math.sin(time * 1.7 + r * 3.1);
+      out.push({ x: x, w: w, a: Math.max(0.15, a), ang: 0.32 + Math.sin(time * 0.05 + r) * 0.05 });
+    }
+    return out;
+  }
+
   /** Dibuja todo el fondo en coordenadas de pantalla (unidades del mundo). */
   BG.draw = function (ctx, room, camX, camY, vw, vh, time) {
-    var z = room.zone;
-    var grd = ctx.createLinearGradient(0, 0, 0, vh);
-    grd.addColorStop(0, z.sky[0]);
-    grd.addColorStop(0.55, z.sky[1]);
-    grd.addColorStop(1, z.sky[2]);
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, vw, vh);
-    if (room.def.dark) {
-      ctx.fillStyle = "rgba(4,8,8,0.55)";
+    var z = room.zone, dark = !!room.def.dark;
+    var pic = painted(room.zoneId);
+    if (!pic) {
+      var grd = ctx.createLinearGradient(0, 0, 0, vh);
+      grd.addColorStop(0, z.sky[0]);
+      grd.addColorStop(0.55, z.sky[1]);
+      grd.addColorStop(1, z.sky[2]);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, vw, vh);
+    } else {
+      var sc = Math.max(vw / pic.width, vh / pic.height) * 1.16;
+      var dw = pic.width * sc, dh = pic.height * sc;
+      var fx = room.pw > vw ? SS.clamp(camX / (room.pw - vw), 0, 1) : 0.5;
+      var fy = room.ph > vh ? SS.clamp(camY / (room.ph - vh), 0, 1) : 0.55;
+      var ox = -(dw - vw) * fx + Math.sin(time * 0.05) * 3;
+      var oy = -(dh - vh) * fy + Math.sin(time * 0.07) * 2;
+      ctx.drawImage(pic, ox, oy, dw, dh);
+    }
+    if (dark) {
+      ctx.fillStyle = "rgba(2,6,6,0.72)";
       ctx.fillRect(0, 0, vw, vh);
     }
 
-    // Sol o luna velada
-    SS.drawGlow(ctx, vw * 0.72 - camX * 0.02, vh * 0.3 - camY * 0.01, Math.max(vw, vh) * 0.42, z.sun, room.def.dark ? 0.05 : 0.22);
+    BG.drawFlocks(ctx, z, time);
 
-    var layers = BG.get(room.zoneId);
-    var maxCamY = Math.max(0, room.ph - vh);
-    for (var i = 0; i < layers.length; i++) {
-      var L = layers[i];
-      var off = -((camX * L.f) % LW);
-      if (off > 0) off -= LW;
-      var yoff = vh - LH + (maxCamY - camY) * L.f * 0.6 + (room.def.dark ? 60 : 0);
-      ctx.globalAlpha = L.alpha * (room.def.dark ? 0.45 : 1);
-      for (var x = off; x < vw; x += LW) ctx.drawImage(L.img, x, yoff, LW, LH);
-      ctx.globalAlpha = 1;
-      if (i === 0) BG.drawFlocks(ctx, z, time);
+    // rayos de luz que se desplazan y respiran
+    var bm = beamSprite(), list = beams(room, camX, vw, time), i;
+    var strength = dark ? 0.04 : room.zoneId === "bosque" ? 0.16 : 0.09;
+    ctx.globalCompositeOperation = "lighter";
+    var tint = SS.glow(z.ray);
+    for (i = 0; i < list.length; i++) {
+      var b = list[i];
+      ctx.save();
+      ctx.translate(b.x, -20);
+      ctx.rotate(-b.ang);
+      ctx.globalAlpha = strength * b.a;
+      ctx.drawImage(bm, -b.w / 2, 0, b.w, vh * 1.5);
+      ctx.globalAlpha = strength * b.a * 0.6;
+      ctx.drawImage(tint, -b.w * 0.8, 0, b.w * 1.6, vh * 0.9);
+      ctx.restore();
     }
-
-    // Rayos de luz en el bosque
-    if (z.layers === "forest" && !room.def.dark) {
-      ctx.globalCompositeOperation = "lighter";
-      for (var r = 0; r < 4; r++) {
-        var bx = ((r * 330 + 120 - camX * 0.18) % (vw + 400) + vw + 400) % (vw + 400) - 200;
-        var sway = Math.sin(time * 0.2 + r) * 30;
-        var lg = ctx.createLinearGradient(0, 0, 0, vh);
-        lg.addColorStop(0, "rgba(" + z.sun + ",0.10)");
-        lg.addColorStop(1, "rgba(" + z.sun + ",0)");
-        ctx.fillStyle = lg;
-        ctx.beginPath();
-        ctx.moveTo(bx + sway, 0); ctx.lineTo(bx + 60 + sway, 0);
-        ctx.lineTo(bx + 180, vh); ctx.lineTo(bx + 90, vh);
-        ctx.fill();
+    // motas: brillan más cerca del eje de un rayo
+    ctx.fillStyle = "rgb(" + z.ray + ")";
+    for (i = 0; i < BG.motes.length; i++) {
+      var mo = BG.motes[i], lit = 0.12;
+      for (var k = 0; k < list.length; k++) {
+        var bx = list[k].x + Math.tan(list[k].ang) * (mo.y + 20);
+        var d = Math.abs(mo.x - bx);
+        if (d < list[k].w) lit = Math.max(lit, (1 - d / list[k].w) * list[k].a);
       }
-      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = lit * (dark ? 0.35 : 0.8) * (0.6 + 0.4 * Math.sin(time * 1.3 + mo.ph * 3));
+      ctx.fillRect(mo.x, mo.y, mo.s, mo.s);
     }
+    ctx.globalAlpha = 1;
+    // resplandor de brasas lejanas en el refugio
+    if (room.zoneId === "refugio" && !dark) {
+      var eg = ctx.createLinearGradient(0, vh * 0.7, 0, vh);
+      var pul = 0.07 + Math.sin(time * 0.9) * 0.025 + Math.sin(time * 2.3) * 0.015;
+      eg.addColorStop(0, "rgba(255,90,30,0)");
+      eg.addColorStop(1, "rgba(255,90,30," + pul.toFixed(3) + ")");
+      ctx.fillStyle = eg;
+      ctx.fillRect(0, vh * 0.7, vw, vh * 0.3);
+    }
+    ctx.globalCompositeOperation = "source-over";
+
+    // bancos de niebla que avanzan
+    var fog = fogSprite();
+    for (var l = 0; l < 2; l++) {
+      var sp = l ? 9 : 4, par = l ? 0.35 : 0.18;
+      var fxo = -((camX * par + time * sp) % 512);
+      if (fxo > 0) fxo -= 512;
+      var fyo = vh * (l ? 0.55 : 0.38) - (camY * par * 0.2) % 40;
+      ctx.globalAlpha = (dark ? 0.12 : 0.3) * (l ? 0.9 : 0.6);
+      for (var fxx = fxo; fxx < vw; fxx += 512) ctx.drawImage(fog, fxx, fyo, 512, 96 + l * 30);
+    }
+    ctx.globalAlpha = 1;
   };
 
   BG.drawFlocks = function (ctx, z, time) {
@@ -289,14 +234,60 @@
     }
   };
 
+  /** Primer plano: cadenas (refugio) o ramas (bosque) que cuelgan arriba
+      y se mueven más rápido que el escenario (sensación de profundidad). */
+  BG.drawFront = function (ctx, room, camX, camY, vw, vh, time) {
+    if (room.def.dark) return;
+    var par = 1.25, span = 420, i;
+    var off = -((camX * par) % span);
+    if (off > 0) off -= span;
+    var yoff = -Math.min(60, camY * 0.05);
+    ctx.lineCap = "round";
+    for (var base = off; base < vw + span; base += span) {
+      if (room.zoneId === "refugio") {
+        for (i = 0; i < 2; i++) {
+          var x = base + 60 + i * 190, len = 50 + i * 35 + Math.sin(base * 0.01) * 10;
+          var sw = Math.sin(time * 0.8 + i + base * 0.003) * 6;
+          ctx.strokeStyle = "rgba(8,6,6,0.85)";
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          for (var k = 0; k <= len; k += 7) {
+            var tt = k / len, cx = x + sw * tt * tt;
+            ctx.moveTo(cx - 2.2, yoff + k); ctx.lineTo(cx + 2.2, yoff + k + 4);
+          }
+          ctx.stroke();
+          if (i === 1) {
+            ctx.fillStyle = "rgba(8,6,6,0.9)";
+            ctx.fillRect(x + sw - 5, yoff + len, 10, 12);
+          }
+        }
+      } else {
+        ctx.strokeStyle = "rgba(4,10,8,0.9)";
+        ctx.fillStyle = "rgba(4,10,8,0.9)";
+        for (i = 0; i < 2; i++) {
+          var bx = base + 30 + i * 230, sway = Math.sin(time * 0.6 + i * 2) * 4;
+          ctx.lineWidth = 6 - i * 2;
+          ctx.beginPath();
+          ctx.moveTo(bx - 40, yoff - 4);
+          ctx.quadraticCurveTo(bx, yoff + 18 + sway, bx + 60, yoff + 6 + sway);
+          ctx.stroke();
+          for (var lf = 0; lf < 6; lf++) {
+            var lx = bx - 30 + lf * 16, ly = yoff + 12 + Math.sin(lf * 1.7) * 6 + sway;
+            ctx.beginPath(); ctx.ellipse(lx, ly + 6, 4, 9, 0.4 * Math.sin(time + lf), 0, 6.283); ctx.fill();
+          }
+        }
+      }
+    }
+  };
+
   /** Niebla baja, viñeta y oscuridad de cueva (encima del mundo). */
   BG.drawOverlay = function (ctx, room, vw, vh, px, py) {
     var z = room.zone;
-    var fg = ctx.createLinearGradient(0, vh * 0.6, 0, vh);
+    var fg = ctx.createLinearGradient(0, vh * 0.62, 0, vh);
     fg.addColorStop(0, "rgba(" + z.fog + ",0)");
-    fg.addColorStop(1, "rgba(" + z.fog + ",0.16)");
+    fg.addColorStop(1, "rgba(" + z.fog + ",0.14)");
     ctx.fillStyle = fg;
-    ctx.fillRect(0, vh * 0.6, vw, vh * 0.4);
+    ctx.fillRect(0, vh * 0.62, vw, vh * 0.38);
     if (room.def.dark) {
       var dg = ctx.createRadialGradient(px, py, 50, px, py, Math.max(vw, vh) * 0.7);
       dg.addColorStop(0, "rgba(0,0,0,0)");
@@ -305,12 +296,24 @@
       ctx.fillStyle = dg;
       ctx.fillRect(0, 0, vw, vh);
     }
-    var vg = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.35, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
+    ctx.drawImage(vignette(vw, vh), 0, 0, vw, vh);
+  };
+
+  /** Viñeta precalculada (se rehace solo si cambia el tamaño de la vista). */
+  function vignette(vw, vh) {
+    var key = Math.round(vw) + "x" + Math.round(vh);
+    if (BG.vig && BG.vig.key === key) return BG.vig.c;
+    var c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(vw)); c.height = Math.max(1, Math.round(vh));
+    var g = c.getContext("2d");
+    var vg = g.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.35, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
     vg.addColorStop(0, "rgba(0,0,0,0)");
     vg.addColorStop(1, "rgba(0,0,0,0.55)");
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, vw, vh);
-  };
+    g.fillStyle = vg;
+    g.fillRect(0, 0, c.width, c.height);
+    BG.vig = { key: key, c: c };
+    return c;
+  }
 
   /** Partículas ambientales en el mundo, alrededor de la cámara. */
   BG.ambient = function (dt, room, particles, camX, camY, vw, vh) {
@@ -321,14 +324,18 @@
       BG.ambT = 0.07;
       particles.spawn("ash", camX + Math.random() * (vw + 100) - 50, camY - 10, SS.rand(-8, 22), SS.rand(14, 34),
         9, SS.rand(1.5, 3.2), "#a39790", {});
-      if (Math.random() < 0.12) {
-        particles.spawn("glow", camX + Math.random() * vw, camY + vh + 5, SS.rand(-6, 6), SS.rand(-30, -14),
-          5, SS.rand(2, 4), "255,140,70", {});
+      if (Math.random() < 0.35) {
+        particles.spawn("ember", camX + Math.random() * vw, camY + vh + 5, SS.rand(-10, 10), SS.rand(-40, -18),
+          SS.rand(4, 7), SS.rand(1.4, 2.6), "255,140,60", {});
       }
     } else if (z.particles === "fireflies") {
-      BG.ambT = room.def.dark ? 0.45 : 0.28;
+      BG.ambT = room.def.dark ? 0.45 : 0.24;
       particles.spawn("firefly", camX + Math.random() * vw, camY + vh * (0.25 + Math.random() * 0.7),
         SS.rand(-8, 8), SS.rand(-8, 8), SS.rand(4, 7), SS.rand(1.5, 2.6), room.def.dark ? "140,220,255" : "205,255,150", { drag: 0.6 });
+      if (!room.def.dark && Math.random() < 0.3) {
+        particles.spawn("leaf", camX + Math.random() * (vw + 80) - 40, camY - 8, 0, SS.rand(16, 30),
+          SS.rand(8, 12), SS.rand(2.2, 3.4), SS.pick(["#3f5a32", "#5a6b2e", "#2f4a2c", "#6b5a2a"]), {});
+      }
     }
   };
 })();

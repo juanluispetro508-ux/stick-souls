@@ -1,6 +1,7 @@
 /* =====================================================================
    Partículas con un depósito fijo (no se crean objetos cada fotograma).
-   Tipos: dot, glow, spark, ash, shard, ink, ring, firefly, feather.
+   Tipos: dot, glow, spark, ash, shard, ink, ring, firefly, feather,
+   ember, leaf, mote, bubble, wisp.
    ===================================================================== */
 (function () {
   "use strict";
@@ -52,6 +53,14 @@
         p.vy += Math.cos(time * 1.1 + p.seed * 1.7) * 14 * dt;
       } else if (p.type === "ash") {
         p.vx += Math.sin(time * 0.8 + p.seed) * 6 * dt;
+      } else if (p.type === "ember") {
+        p.vx += Math.sin(time * 2.1 + p.seed) * 22 * dt;
+      } else if (p.type === "leaf") {
+        p.vx = Math.sin(time * 1.5 + p.seed) * 22 + p.vy * 0.2;
+        p.rot = Math.sin(time * 2 + p.seed) * 1.2;
+      } else if (p.type === "mote") {
+        p.vx += Math.sin(time * 0.6 + p.seed) * 3 * dt;
+        p.vy += Math.cos(time * 0.5 + p.seed * 2) * 3 * dt;
       }
       p.vy += p.grav * dt;
       if (p.drag) { var k = 1 / (1 + p.drag * dt); p.vx *= k; p.vy *= k; }
@@ -108,6 +117,30 @@
         case "ring":
           ctx.globalAlpha = a; ctx.strokeStyle = p.color; ctx.lineWidth = 2 * a + 0.5;
           ctx.beginPath(); ctx.arc(p.x, p.y, s * (1.2 - a), 0, 6.283); ctx.stroke();
+          break;
+        case "ember":
+          var fe = Math.min(1, a * 3, (p.max - p.life) * 4) * (0.6 + 0.4 * Math.sin(time * 14 + p.seed * 9));
+          SS.drawGlow(ctx, p.x, p.y, s * 3.2, p.color, fe * 0.55);
+          ctx.globalAlpha = fe; ctx.fillStyle = "rgb(" + p.color + ")";
+          ctx.fillRect(p.x - s * 0.35, p.y - s * 0.35, s * 0.7, s * 0.7);
+          break;
+        case "leaf":
+          ctx.globalAlpha = Math.min(1, a * 2, (p.max - p.life) * 2) * 0.85; ctx.fillStyle = p.color;
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+          ctx.beginPath(); ctx.ellipse(0, 0, s, s * 0.45, 0, 0, 6.283); ctx.fill(); ctx.restore();
+          break;
+        case "mote":
+          var fm = Math.min(1, a * 2, (p.max - p.life) * 1.5) * (0.5 + 0.5 * Math.sin(time * 2 + p.seed * 5));
+          ctx.globalAlpha = fm * 0.6; ctx.fillStyle = "rgb(" + p.color + ")";
+          ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+          break;
+        case "bubble":
+          ctx.globalAlpha = a * 0.8; ctx.strokeStyle = p.color; ctx.lineWidth = 0.7;
+          ctx.beginPath(); ctx.arc(p.x, p.y, s * (1.2 - a * 0.4), 0, 6.283); ctx.stroke();
+          break;
+        case "wisp":
+          ctx.globalAlpha = a * 0.22; ctx.fillStyle = p.color;
+          ctx.beginPath(); ctx.arc(p.x, p.y, s * (1.4 - a * 0.6), 0, 6.283); ctx.fill();
           break;
         case "feather":
           ctx.globalAlpha = a; ctx.strokeStyle = p.color; ctx.lineWidth = 1.2;

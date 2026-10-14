@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   var SS = window.SS;
-  var ACTS = ["left", "right", "up", "down", "jump", "attack", "dodge", "special", "pause", "map"];
+  var ACTS = ["left", "right", "up", "down", "jump", "attack", "dodge", "special", "hook", "heal", "pause", "map"];
   var GAME_KEYS = ["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"];
 
   var I = (SS.input = {
@@ -17,6 +17,7 @@
   I.LABELS = {
     left: "Izquierda", right: "Derecha", up: "Arriba / Interactuar", down: "Abajo",
     jump: "Saltar", attack: "Atacar", dodge: "Esquivar / Dash", special: "Habilidad (golpe cargado)",
+    hook: "Gancho", heal: "Beber de la petaca",
     pause: "Pausa", map: "Mapa"
   };
 
@@ -25,6 +26,7 @@
       left: ["ArrowLeft", "KeyA"], right: ["ArrowRight", "KeyD"], up: ["ArrowUp", "KeyW"],
       down: ["ArrowDown", "KeyS"], jump: ["Space", "KeyZ"], attack: ["KeyJ", "KeyX"],
       dodge: ["ShiftLeft", "ShiftRight", "KeyK", "KeyC"], special: ["KeyL", "KeyV"],
+      hook: ["KeyI", "KeyF"], heal: ["KeyU", "KeyQ"],
       pause: ["Escape", "KeyP"], map: ["KeyM", "Tab"]
     };
   };
@@ -55,13 +57,13 @@
   }
 
   I.clear = function () {
-    I.keysDown = {}; I.touch = {}; I.mouse = false;
+    I.keysDown = {}; I.touch = {}; I.mouse = false; I.mouseR = false;
     for (var i = 0; i < ACTS.length; i++) I.raw[ACTS[i]] = false;
     for (var j = 0; j < I.touchEls.length; j++) I.touchEls[j].classList.remove("on");
   };
 
   I.init = function (keymap) {
-    I.keymap = keymap || I.defaultKeymap();
+    I.keymap = Object.assign(I.defaultKeymap(), keymap || {});
     window.addEventListener("keydown", function (e) {
       if (I.rebind) {
         e.preventDefault();
@@ -92,7 +94,7 @@
   I.poll = function () {
     for (var i = 0; i < ACTS.length; i++) {
       var a = ACTS[i];
-      var cur = !!(I.raw[a] || I.touch[a] || (a === "attack" && I.mouse));
+      var cur = !!(I.raw[a] || I.touch[a] || (a === "attack" && I.mouse) || (a === "hook" && I.mouseR));
       var tap = !!I.tapped[a];
       I.pressed[a] = (cur && !I.prev[a]) || tap;
       I.released[a] = (!cur && !!I.prev[a]) || (tap && !cur);
@@ -107,11 +109,12 @@
 
   I.setupMouse = function (canvas) {
     canvas.addEventListener("mousedown", function (e) {
-      if (e.button !== 0 || I.lastDevice === "touch") return;
-      I.mouse = true; I.tapped.attack = true;
+      if (I.lastDevice === "touch") return;
+      if (e.button === 0) { I.mouse = true; I.tapped.attack = true; }
+      else if (e.button === 2) { I.mouseR = true; I.tapped.hook = true; }
       if (SS.audio) SS.audio.init();
     });
-    window.addEventListener("mouseup", function (e) { if (e.button === 0) I.mouse = false; });
+    window.addEventListener("mouseup", function (e) { if (e.button === 0) I.mouse = false; if (e.button === 2) I.mouseR = false; });
     canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
   };
 

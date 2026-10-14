@@ -1,21 +1,21 @@
 /* =====================================================================
    STICK SOULS · bucle principal y reglas del juego.
-   Estados: title, play, pause, map, dialog, bench, banner, end.
+   Estados: title, intro, play, pause, map, dialog, stand, banner, end.
    Paso fijo de 1/60 s con acumulador (la velocidad no depende de los FPS).
    ===================================================================== */
 (function () {
   "use strict";
   var SS = window.SS, T = SS.T;
-  var SAVE_KEY = "stickSouls.save.v1", OPT_KEY = "stickSouls.opts.v1";
+  var SAVE_KEY = "stickSouls.save.v2", OPT_KEY = "stickSouls.opts.v1";
 
   var G = (SS.G = {
     state: "title", time: 0, hitstop: 0, shake: 0, slowmo: 0, atkId: 0, cinematic: false,
     fade: { a: 1, dir: -1, cb: null, speed: 2, hold: false },
     cam: { x: 0, y: 0 }, view: { w: 533, h: 300 }, uiScale: 1,
-    enemies: [], projectiles: [], hazards: [], orbs: [], birds: [], ecos: [], timers: [],
+    enemies: [], projectiles: [], hazards: [], orbs: [], birds: [], crosses: [], props: [], corpses: [], timers: [],
     boss: null, room: null, player: null, save: null, particles: null,
     hints: {}, essDisplay: 0, areaShown: null, interact: null, transitioning: false,
-    pendingDeath: false, deathTimer: 0, saveDirtyT: 0, essDirty: false
+    pendingDeath: false, deathTimer: 0, saveDirtyT: 0, essDirty: false, ready: false
   });
 
   var canvas, ctx, dpr = 1, cssW = 1, cssH = 1, scale = 1, last = 0, acc = 0;
@@ -26,6 +26,18 @@
   SS.saveOptions = function () { SS.store.set(OPT_KEY, SS.options); };
 
   /* ------------------------------------------------------------ inicio */
+  G.boot = function () {
+    var go = function () { if (!G.ready) { G.ready = true; G.init(); } };
+    SS.loadImages(function () {
+      if (document.fonts && document.fonts.load) {
+        Promise.all([
+          document.fonts.load("italic 16px Fell"), document.fonts.load("italic 500 16px Corm"), document.fonts.load("italic 600 16px Corm")
+        ]).then(go, go);
+        setTimeout(go, 2500);
+      } else go();
+    });
+  };
+
   G.init = function () {
     SS.options = Object.assign(SS.defaultOptions(), SS.store.get(OPT_KEY, {}) || {});
     canvas = document.getElementById("game");
@@ -35,13 +47,14 @@
     SS.input.setupTouch(document.getElementById("touch"));
     SS.audio.volume = SS.options.volume;
     SS.audio.muted = SS.options.muted;
-    G.particles = new SS.Particles(520);
+    G.particles = new SS.Particles(900);
     G.titleRoom = new SS.Room("r1", G.newSave());
     SS.ui.init();
     window.addEventListener("resize", G.resize);
     window.addEventListener("orientationchange", function () { setTimeout(G.resize, 250); });
     G.resize();
     G.toTitle();
+    document.body.classList.add("loaded");
     requestAnimationFrame(frame);
     if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
       navigator.serviceWorker.register("sw.js").catch(function () { /* sin caché offline */ });
@@ -76,34 +89,44 @@
   /* ----------------------------------------------------------- partida */
   G.newSave = function () {
     return {
-      v: 1, room: "r1", bench: null, essence: 0, lvlHp: 0, lvlAtk: 0, fragments: 0, relics: [],
-      abilities: { dash: false, charge: false, doublejump: false }, bosses: {}, discovered: {},
-      collected: {}, eco: null, npcStage: 0, zones: {}, playTime: 0, deaths: 0, phaseEnd: false
+      v: 2, room: "r1", stand: null, essence: 0, lvlHp: 0, lvlAtk: 0, lvlFlask: 0, fragments: 0, relics: [],
+      flask: 2, abilities: { dash: false, hook: false, charge: false, doublejump: false }, bosses: {}, discovered: {},
+      collected: {}, cross: null, npcStage: 0, zones: {}, playTime: 0, deaths: 0, phaseEnd: false
     };
   };
   G.hasSave = function () { return !!SS.store.get(SAVE_KEY, null); };
   G.persist = function () { if (G.save) SS.store.set(SAVE_KEY, G.save); G.essDirty = false; };
   G.deleteSave = function () { SS.store.del(SAVE_KEY); };
   G.maxHp = function () { return 5 + (G.save.lvlHp || 0) + (G.save.fragments || 0); };
-  G.level = function () { return 1 + (G.save.lvlHp || 0) + (G.save.lvlAtk || 0); };
+  G.flaskMax = function () { return 2 + (G.save.lvlFlask || 0); };
+  G.level = function () { return 1 + (G.save.lvlHp || 0) + (G.save.lvlAtk || 0) + (G.save.lvlFlask || 0); };
 
   G.startNew = function () {
     G.save = G.newSave();
     G.persist();
-    G.beginPlay(true);
+    SS.ui.hideAll();
+    G.state = "intro";
+    G.room = null;
+    document.body.classList.add("playing");
+    SS.input.touchActive = false;
+    G.fade.a = 1; G.fade.dir = -1; G.fade.speed = 1.2; G.fade.cb = null;
+    SS.audio.init();
+    SS.cine.start(function () {
+      G.fadeTo(function () { G.beginPlay(true); }, 2.2);
+    });
   };
 
   G.continueGame = function () {
     var s = SS.store.get(SAVE_KEY, null);
     if (!s) return;
     G.save = Object.assign(G.newSave(), s);
-    G.save.abilities = Object.assign({ dash: false, charge: false, doublejump: false }, s.abilities || {});
+    G.save.abilities = Object.assign({ dash: false, hook: false, charge: false, doublejump: false }, s.abilities || {});
     G.beginPlay(false);
   };
 
   G.respawnPoint = function () {
     var s = G.save;
-    if (s.bench && SS.ROOMS[s.bench]) return { room: s.bench, bench: true };
+    if (s.stand && SS.ROOMS[s.stand]) return { room: s.stand, stand: true };
     return { room: "r1", start: true };
   };
 
@@ -118,18 +141,20 @@
     var sp = G.respawnPoint();
     G.loadRoom(sp.room, null, null, sp);
     if (isNew) G.player.setState("wake");
-    else if (sp.bench) G.player.setState("sit");
+    else if (sp.stand) G.player.setState("sit");
     SS.ui.hideAll();
     G.setState("play");
-    G.fade.a = 1; G.fade.dir = -1; G.fade.speed = 1.6; G.fade.cb = null; G.fade.hold = false;
+    G.fade.a = 1; G.fade.dir = -1; G.fade.speed = 1.4; G.fade.cb = null; G.fade.hold = false;
     SS.audio.init();
-    if (isNew) G.after(2.4, function () { G.hint("move", G.touchMode() ? "Usa ◀ ▶ para moverte y «Salto» para saltar." : "Muévete con A / D o las flechas. Salta con Espacio."); });
+    if (isNew) G.after(2.6, function () { G.hint("move", G.touchMode() ? "Usa ◀ ▶ para moverte y «Salto» para saltar." : "Muévete con A / D o las flechas. Salta con Espacio."); });
   };
 
   G.toTitle = function () {
     G.state = "title";
     G.room = null;
     G.boss = null;
+    SS.cine.active = false;
+    document.body.classList.remove("cine");
     G.particles.clear();
     SS.BG.reset();
     G.cam.x = 0; G.cam.y = Math.max(0, G.titleRoom.ph - G.view.h);
@@ -159,27 +184,36 @@
   };
 
   /* -------------------------------------------------------- habitaciones */
-  G.loadRoom = function (id, at, side, spawn) {
+  G.loadRoom = function (id, fromId, side, spawn) {
     var room = (G.room = new SS.Room(id, G.save));
     G.enemies.length = 0; G.projectiles.length = 0; G.hazards.length = 0;
-    G.orbs.length = 0; G.birds.length = 0; G.ecos.length = 0;
+    G.orbs.length = 0; G.birds.length = 0; G.crosses.length = 0; G.props.length = 0; G.corpses.length = 0;
     G.boss = null;
     G.particles.clear();
     SS.BG.reset();
     SS.ui.hideBoss();
     G.spawnEnemies();
-    if (room.def.boss && room.bossPos && !G.save.bosses[room.def.boss]) {
-      G.boss = new SS.Verdugo(room.bossPos.x * T, room.bossPos.y * T);
+    for (var i = 0; i < room.props.length; i++) {
+      var pd = room.props[i];
+      G.props.push(new SS.Prop(pd.kind, pd.tx, pd.ty, pd.key));
     }
-    if (G.save.eco && G.save.eco.room === id) G.ecos.push(new SS.Eco(G.save.eco.x, G.save.eco.y, G.save.eco.val));
+    var bossId = room.def.boss;
+    if (bossId && room.bossPos && !G.save.bosses[bossId]) {
+      G.boss = bossId === "can" ? new SS.Can(room.bossPos.x * T, room.bossPos.y * T) : new SS.Verdugo(room.bossPos.x * T, room.bossPos.y * T);
+    }
+    var cr = G.save.cross;
+    if (cr && cr.room === id) G.crosses.push(new SS.Cruz(cr.x, cr.y, cr.val));
 
     var p = G.player;
-    if (at) {
-      p.placeAt(at[0] * T + T / 2 - p.w / 2, (at[1] + 1) * T - p.h);
-      if (side === "U") p.vy = -700;
-    } else if (spawn && spawn.bench && room.bench) {
-      p.placeAt(room.bench.x * T + T / 2 - p.w / 2, (room.bench.y + 1) * T - p.h);
-      p.vx = 0; p.vy = 0;
+    var entry = fromId ? room.entryFrom(fromId, side) : null;
+    if (entry) {
+      var ex = entry.side === "L" ? 2 : entry.side === "R" ? room.pw - p.w - 2 : entry.x * T + T / 2 - p.w / 2;
+      var ey = entry.side === "U" ? -p.h + 4 : entry.side === "D" ? room.ph - p.h - 2 : (entry.y + 1) * T - p.h;
+      p.placeAt(ex, ey);
+      if (entry.boost) p.vy = -720;
+    } else if (spawn && spawn.stand && room.stand) {
+      p.placeAt(room.stand.x * T + T / 2 - 22 - p.w / 2, (room.stand.y + 1) * T - p.h);
+      p.vx = 0; p.vy = 0; p.dir = 1;
     } else if (room.start) {
       p.placeAt(room.start.x * T + T / 2 - p.w / 2, (room.start.y + 1) * T - p.h);
       p.vx = 0; p.vy = 0;
@@ -194,7 +228,7 @@
     } else if (firstVisit) {
       SS.ui.roomTitle(room.def.name);
     }
-    SS.audio.setZone(room.def.music || room.zone.music);
+    SS.audio.setZone(room.def.boss && !G.save.bosses[room.def.boss] ? room.zone.music : (room.def.music && room.def.music !== "boss" ? room.def.music : room.zone.music));
     G.snapCamera();
     G.persist();
   };
@@ -202,10 +236,11 @@
   G.spawnEnemies = function () {
     var room = G.room;
     G.enemies.length = 0;
+    G.birds.length = 0;
     for (var i = 0; i < room.spawns.length; i++) {
       var sp = room.spawns[i];
       if (sp.type === "b") G.birds.push(new SS.Bird(sp.x, sp.y));
-      else G.enemies.push(new SS.Enemy(sp.type, sp.x, sp.y));
+      else G.enemies.push(new SS.Enemy(sp.type, sp.x, sp.y, room));
     }
   };
 
@@ -231,9 +266,10 @@
 
   G.transition = function (e, side) {
     G.transitioning = true;
-    var p = G.player, vx = p.vx, vy = p.vy;
+    var p = G.player, vx = p.vx, vy = p.vy, from = G.room.id;
+    if (p.hook) { p.hook = null; if (p.state === "swing") p.setState("normal"); }
     G.fadeTo(function () {
-      G.loadRoom(e.to, e.at, side);
+      G.loadRoom(e.to, from, side);
       p.vx = vx;
       if (side === "L" || side === "R") p.vy = Math.min(vy, 0) * 0.6;
       if (side === "D") p.vy = Math.max(vy, 60);
@@ -264,7 +300,7 @@
   G.cameraTarget = function () {
     var p = G.player, v = G.view;
     var tx = p.cx() + p.dir * 36 - v.w / 2;
-    var ty = p.cy() - v.h * 0.56;
+    var ty = p.cy() - v.h * 0.56 + SS.clamp(p.vy * 0.08, -20, 40);
     var b = G.boss;
     if (b && b.state !== "dormant" && b.state !== "dying") tx = (p.cx() * 0.6 + b.cx() * 0.4) - v.w / 2;
     return { x: tx, y: ty };
@@ -298,41 +334,43 @@
   };
   G.addEssence = function (v) { G.save.essence += v; G.essDirty = true; };
 
-  /* ----------------------------------------------------- muerte y eco */
+  /* ---------------------------------------------------- muerte y cruz */
   G.onPlayerDeath = function () {
     var s = G.save, p = G.player;
     s.deaths++;
     G.lostEssence = s.essence;
     if (s.essence > 0) {
-      s.eco = { room: G.room.id, x: p.safe.x + p.w / 2, y: p.safe.y + p.h / 2 - 6, val: s.essence };
+      s.cross = { room: G.room.id, x: p.safe.x + p.w / 2, y: p.safe.y + p.h, val: s.essence };
       s.essence = 0;
-    }
+    } else s.cross = null;
     G.persist();
     G.pendingDeath = true;
-    G.deathTimer = 1.5;
+    G.deathTimer = 2.2;
     G.hazards.length = 0;
   };
 
   G.respawn = function () {
     var p = G.player;
     p.setState("normal");
+    p.ragdoll = null;
     p.maxHp = G.maxHp();
     p.hp = p.maxHp;
     p.iframes = 0; p.vx = 0; p.vy = 0; p.atk = null;
+    G.save.flask = G.flaskMax();
     G.essDisplay = G.save.essence;
     var sp = G.respawnPoint();
     G.loadRoom(sp.room, null, null, sp);
-    if (sp.bench) p.setState("sit");
-    if (G.lostEssence > 0) G.after(1.2, function () { SS.ui.toast("Tu esencia quedó como un eco donde caíste. Ve por ella."); });
+    if (sp.stand) p.setState("sit");
+    if (G.lostEssence > 0) G.after(1.2, function () { SS.ui.toast("Tu esencia quedó junto a una cruz donde caíste. Ve por ella."); });
   };
 
-  G.recoverEco = function (eco) {
-    G.addEssence(eco.val);
-    G.save.eco = null;
+  G.recoverCross = function (c) {
+    G.addEssence(c.val);
+    G.save.cross = null;
     G.persist();
     SS.audio.play("eco");
-    G.particles.burst("glow", eco.x, eco.y, 18, 160, 0.8, 6, "190,160,255", {});
-    SS.ui.toast("Recuperaste " + eco.val + " de esencia.");
+    G.particles.burst("glow", c.x, c.y - 16, 18, 160, 0.8, 6, "190,160,255", {});
+    SS.ui.toast("Recuperaste " + c.val + " de esencia.");
   };
 
   G.hazardRespawn = function () {
@@ -347,7 +385,7 @@
     }, 5);
   };
 
-  /* ------------------------------------------------------------ jefe */
+  /* ------------------------------------------------------------ jefes */
   G.startBoss = function () {
     G.room.doorsClosed = true;
     SS.audio.play("door");
@@ -355,63 +393,85 @@
     G.boss.start(G);
     SS.audio.setZone("boss");
     SS.ui.showBoss(G.boss);
+    SS.ui.bossCard(SS.BOSSES[G.boss.id]);
   };
 
   G.onBossDefeated = function (boss) {
-    G.save.bosses.verdugo = true;
+    var id = boss.id, def = SS.BOSSES[id];
+    G.save.bosses[id] = true;
     G.room.doorsClosed = false;
     SS.audio.play("door");
-    G.spawnEssence(boss.cx(), boss.cy(), 150);
+    G.spawnEssence(boss.cx(), boss.cy(), id === "can" ? 120 : 150);
     G.particles.burst("glow", boss.cx(), boss.cy(), 30, 220, 1.2, 8, "255,200,140", {});
     G.particles.spawn("ring", boss.cx(), boss.cy(), 0, 0, 0.8, 120, "rgba(255,230,190,0.9)", {});
     SS.ui.hideBoss();
-    SS.audio.setZone(G.room.def.music || G.room.zone.music);
+    SS.audio.setZone(G.room.zone.music);
     G.boss = null;
     G.persist();
     G.after(1.6, function () {
       SS.audio.play("victory");
-      G.obtainAbility("charge", "Has vencido al Verdugo");
+      G.obtainAbility(def.reward, id === "can" ? "Has vencido al Can Bicéfalo" : "Has vencido al Verdugo", function () {
+        SS.ui.dialog("Una voz lejana", id === "can" ? SS.STORY.afterCan : SS.STORY.afterVerdugo);
+      });
     });
   };
 
   /* ------------------------------------------------- objetos e interacción */
-  G.obtainAbility = function (id, title) {
+  G.obtainAbility = function (id, title, after) {
     G.save.abilities[id] = true;
     G.persist();
     SS.audio.play("ability");
     var p = G.player;
-    G.particles.burst("glow", p.cx(), p.cy(), 24, 180, 1, 6, "200,240,255", {});
+    G.particles.burst("glow", p.cx(), p.cy(), 24, 180, 1, 6, "255,230,200", {});
     var ab = SS.ABILITIES[id];
-    SS.ui.banner(title || "Habilidad obtenida", ab.icon + "  " + ab.name, ab.desc);
+    SS.ui.banner(title || "Habilidad obtenida", ab.icon + "  " + ab.name, ab.desc, after);
   };
 
-  G.restAtBench = function (o) {
+  /** Puesto de cerveza: el caballero se sienta y se toma una botella. */
+  G.restAtStand = function (o) {
     var p = G.player;
-    p.placeAt(o.x + T / 2 - p.w / 2, o.y + T - p.h);
-    p.setState("sit");
+    p.placeAt(o.x + T / 2 - 22 - p.w / 2, o.y + T - p.h);
     p.dir = 1;
+    p.vx = 0; p.vy = 0;
+    p.sfx1 = p.sfx2 = p.sfx3 = false;
+    p.setState("standdrink");
+    p.drink = null;
+    G.save.stand = G.room.id;
+    SS.audio.setZone("taberna");
+    G.setState("standing");
+  };
+
+  G.finishStand = function () {
+    var p = G.player;
     p.maxHp = G.maxHp();
     p.hp = p.maxHp;
-    G.save.bench = G.room.id;
+    G.save.flask = G.flaskMax();
     G.spawnEnemies();
     G.persist();
     SS.audio.play("bench");
-    G.particles.burst("glow", o.x + T / 2, o.y + 10, 14, 80, 1.2, 5, "255,210,150", { up: 40 });
-    SS.ui.openBench();
+    var o = G.room.stand;
+    G.particles.burst("glow", o.x * T + T / 2 - 22, o.y * T + 14, 14, 80, 1.2, 5, "255,210,150", { up: 40 });
+    p.setState("sit");
+    SS.ui.openStand();
+  };
+
+  G.leaveStand = function () {
+    SS.audio.setZone(G.room.zone.music);
   };
 
   G.upgrade = function (kind) {
-    var key = kind === "hp" ? "lvlHp" : "lvlAtk";
+    var key = kind === "hp" ? "lvlHp" : kind === "atk" ? "lvlAtk" : "lvlFlask";
     var lvl = G.save[key] || 0;
     var cost = SS.UPGRADE_COST[kind][lvl];
     if (cost === undefined || G.save.essence < cost) return false;
     G.save.essence -= cost;
     G.save[key] = lvl + 1;
     if (kind === "hp") { G.player.maxHp = G.maxHp(); G.player.hp = G.player.maxHp; }
+    if (kind === "flask") G.save.flask = G.flaskMax();
     G.essDisplay = G.save.essence;
     G.persist();
     SS.audio.play("levelup");
-    G.particles.burst("glow", G.player.cx(), G.player.cy(), 20, 140, 1, 6, kind === "hp" ? "255,220,230" : "255,200,140", { up: 60 });
+    G.particles.burst("glow", G.player.cx(), G.player.cy(), 20, 140, 1, 6, kind === "hp" ? "255,220,230" : kind === "atk" ? "255,200,140" : "220,230,255", { up: 60 });
     return true;
   };
 
@@ -424,14 +484,14 @@
         if (p.state !== "dead" && SS.overlap(o.x + 6, o.y + 4, T - 12, T - 4, p.x, p.y, p.w, p.h)) G.collect(o, i);
       }
     }
-    if (p.state !== "normal" || !p.onGround) return;
+    if (p.state !== "normal" || !p.onGround || p.drink) return;
     var best = null, bd = 1e9;
     for (i = 0; i < objs.length; i++) {
       o = objs[i];
-      if (["bench", "tablet", "npc", "altar", "gate"].indexOf(o.kind) < 0) continue;
+      if (["stand", "tablet", "npc", "altar", "gate"].indexOf(o.kind) < 0) continue;
       if (o.kind === "altar" && o.taken) continue;
-      var ox = o.kind === "gate" ? o.x : o.x + T / 2;
-      var range = o.kind === "gate" ? 44 : 26;
+      var ox = o.kind === "gate" ? o.x : o.x + T / 2 + (o.kind === "stand" ? -12 : 0);
+      var range = o.kind === "gate" ? 44 : o.kind === "stand" ? 46 : 26;
       var dx = Math.abs(p.cx() - ox);
       var oy = o.kind === "gate" ? o.y + o.h : o.y + T;
       if (dx < range && Math.abs(p.y + p.h - oy) < 40 && dx < bd) { best = o; bd = dx; }
@@ -446,14 +506,15 @@
   G.doInteract = function (o) {
     var s = G.save;
     switch (o.kind) {
-      case "bench": G.restAtBench(o); break;
+      case "stand": G.restAtStand(o); break;
       case "tablet": if (o.lore) SS.ui.dialog(o.lore.who, o.lore.pages); break;
-      case "npc":
-        var pages = s.bosses.verdugo ? SS.HERMIT.boss : s.abilities.dash ? SS.HERMIT.dash : s.npcStage > 0 ? SS.HERMIT.again : SS.HERMIT.first;
+      case "npc": {
+        var pages = s.bosses.verdugo ? SS.HERMIT.boss : s.abilities.dash ? SS.HERMIT.dash : s.bosses.can ? SS.HERMIT.can : s.npcStage > 0 ? SS.HERMIT.again : SS.HERMIT.first;
         s.npcStage = 1;
         G.persist();
         SS.ui.dialog("Ermitaño Gris", pages);
         break;
+      }
       case "altar":
         o.taken = true;
         G.obtainAbility(o.ability, "Técnica olvidada recuperada");
@@ -463,7 +524,7 @@
           SS.audio.play("secret");
           SS.ui.dialog("Portón sellado", [
             "La runa del portón brilla al reconocerte. Más allá, una escalera desciende hacia las Minas del Silencio.",
-            "Aquí termina la primera fase de Stick Souls. Las Minas, la Ciudad Hundida y el Santuario Vacío llegarán en la siguiente."
+            "Aquí termina esta parte del viaje. La princesa sigue esperando: las Minas, la Ciudad Hundida y el Santuario Vacío llegarán en la siguiente fase."
           ], function () { s.phaseEnd = true; G.persist(); SS.ui.showEnd(); });
         } else {
           SS.ui.dialog("Portón sellado", ["La puerta no responde. Una runa apagada espera algo."]);
@@ -508,9 +569,31 @@
       }
     }
     var b = G.boss;
-    if (b && b.lastHit !== a.id && SS.overlap(box.x, box.y, box.w, box.h, b.x + 6, b.y, b.w - 12, b.h)) {
-      b.lastHit = a.id;
-      if (b.hit(G, dmg)) { hitAny = true; G.shake = Math.max(G.shake, 3); }
+    if (b && b.lastHit !== a.id) {
+      var boxes = b.hitBoxes ? b.hitBoxes() : [{ x: b.x + 6, y: b.y, w: b.w - 12, h: b.h }];
+      for (i = 0; i < boxes.length; i++) {
+        if (SS.boxHit(box, boxes[i])) {
+          b.lastHit = a.id;
+          if (b.hit(G, dmg)) { hitAny = true; G.shake = Math.max(G.shake, 3); }
+          break;
+        }
+      }
+    }
+    for (i = 0; i < G.props.length; i++) {
+      var pr = G.props[i];
+      if (pr.dead || pr.lastHit === a.id) continue;
+      if (SS.boxHit(box, pr)) { pr.lastHit = a.id; pr.hit(G, p.cx(), a.dir); hitAny = true; }
+    }
+    // los faroles colgantes se balancean con los golpes
+    var ropes = G.room.ropes;
+    for (i = 0; i < ropes.length; i++) {
+      var en = ropes[i].end();
+      if (SS.overlap(box.x, box.y, box.w, box.h, en.x - 6, en.y - 4, 12, 18) && ropes[i].lastHit !== a.id) {
+        ropes[i].lastHit = a.id;
+        ropes[i].impulse(en.x, en.y, 30, p.dir * 320, -120);
+        SS.audio.play("clank");
+        G.particles.burst("ember", en.x, en.y + 8, 6, 120, 0.8, 2, "255,170,90", { grav: 200 });
+      }
     }
     var objs = G.room.objects;
     for (i = objs.length - 1; i >= 0; i--) {
@@ -534,11 +617,11 @@
       }
     }
     for (i = 0; i < G.projectiles.length; i++) {
-      var pr = G.projectiles[i];
-      if (!pr.dead && SS.overlap(box.x, box.y, box.w, box.h, pr.x - 5, pr.y - 5, 10, 10)) {
-        pr.dead = true;
+      var pj = G.projectiles[i];
+      if (!pj.dead && SS.overlap(box.x, box.y, box.w, box.h, pj.x - 5, pj.y - 5, 10, 10)) {
+        pj.dead = true;
         SS.audio.play("clank");
-        G.particles.burst("spark", pr.x, pr.y, 8, 200, 0.3, 1.4, "#e0ffd0", {});
+        G.particles.burst("spark", pj.x, pj.y, 8, 200, 0.3, 1.4, "#ffe0c0", {});
       }
     }
     // muros secretos y púas (rebote)
@@ -549,7 +632,8 @@
     for (var ty = ty0; ty <= ty1; ty++) {
       for (var tx = tx0; tx <= tx1; tx++) {
         var c = room.tile(tx, ty);
-        if (c === "S" && !hitSecret && a.secret !== true) { hitSecret = true; a.secret = true;
+        if (c === "S" && !hitSecret && a.secret !== true) {
+          hitSecret = true; a.secret = true;
           var broke = room.hitSecret(tx, ty, G);
           SS.audio.play(broke ? "secret" : "clank");
           G.particles.burst("dot", tx * T + T / 2, ty * T + T / 2, 6, 120, 0.4, 2.5, room.zone.groundTop, { grav: 600 });
@@ -567,12 +651,30 @@
     }
   };
 
+  /** El jugador empuja barriles y vasijas al caminar contra ellos. */
+  G.pushProps = function () {
+    var p = G.player;
+    for (var i = 0; i < G.props.length; i++) {
+      var pr = G.props[i];
+      if (pr.dead) continue;
+      if (SS.overlap(p.x, p.y, p.w, p.h, pr.x, pr.y, pr.w, pr.h)) {
+        var dx = p.cx() - pr.cx();
+        if (Math.abs(p.y + p.h - pr.y) < 6 && p.vy >= 0) { p.y = pr.y - p.h; p.vy = 0; p.onGround = true; continue; }
+        var push = dx < 0 ? 1 : -1;
+        pr.vx = push * Math.max(60, Math.abs(p.vx) * 0.8);
+        if (p.state !== "dodge") p.vx *= 0.5;
+        p.x = push > 0 ? Math.min(p.x, pr.x - p.w + 2) : Math.max(p.x, pr.x + pr.w - 2);
+      }
+    }
+  };
+
   /* ---------------------------------------------------------- bucle */
   function frame(ts) {
     var dt = last ? Math.min(0.1, (ts - last) / 1000) : SS.STEP;
     last = ts;
     acc += dt;
     var steps = 0;
+    if (G.freeze) acc = 0;   // modo de pruebas: la simulación avanza solo con G._step
     while (acc >= SS.STEP && steps < 6) { step(SS.STEP); acc -= SS.STEP; steps++; }
     if (steps >= 6) acc = 0;
     render();
@@ -590,8 +692,10 @@
       if (I.pressed.map) { SS.input.consume("map"); SS.ui.openMap(); return; }
     }
     updateFade(dt);
-    if (G.state === "play") updatePlay(dt);
+    if (G.state === "play" || G.state === "standing") updatePlay(dt);
+    else if (G.state === "stand") updateStand(dt);
     else if (G.state === "title") updateTitle(dt);
+    else if (G.state === "intro") SS.cine.update(dt);
     else if (G.state === "map") SS.ui.mapTick(dt);
   }
 
@@ -602,15 +706,27 @@
     if (G.cam.x > maxX) G.cam.x = 0;
     G.cam.y = Math.max(0, r.ph - G.view.h);
     G.particles.update(dt, r, G.time);
-    SS.BG.update(dt, r.zone, G.view.w, G.view.h);
+    SS.BG.update(dt, r.zone, G.view.w, G.view.h, r);
     SS.BG.ambient(dt, r, G.particles, G.cam.x, G.cam.y, G.view.w, G.view.h);
+  }
+
+  /** Con el menú del puesto abierto el mundo sigue vivo (fuego, partículas). */
+  function updateStand(dt) {
+    G.player.update(dt, G);
+    G.room.updateRopes(dt, G);
+    G.particles.update(dt, G.room, G.time);
+    SS.BG.update(dt, G.room.zone, G.view.w, G.view.h, G.room);
+    SS.BG.ambient(dt, G.room, G.particles, G.cam.x, G.cam.y, G.view.w, G.view.h);
+    var objs = G.room.objects;
+    for (var i = 0; i < objs.length; i++) objs[i].t += dt;
+    G.updateCamera(dt);
   }
 
   function updatePlay(dt) {
     var i;
     for (i = G.timers.length - 1; i >= 0; i--) {
       G.timers[i].t -= dt;
-      if (G.timers[i].t <= 0) { var fn = G.timers[i].fn; G.timers.splice(i, 1); fn(); if (G.state !== "play") return; }
+      if (G.timers[i].t <= 0) { var fn = G.timers[i].fn; G.timers.splice(i, 1); fn(); if (G.state !== "play" && G.state !== "standing") return; }
     }
     if (G.fade.dir === 1 || G.fade.hold) return;
     if (G.hitstop > 0) { G.hitstop -= dt; return; }
@@ -625,20 +741,24 @@
       if (G.boss) G.boss.update(sdt, G);
     }
     for (i = G.enemies.length - 1; i >= 0; i--) { G.enemies[i].update(sdt, G); if (G.enemies[i].dead) G.enemies.splice(i, 1); }
+    for (i = G.props.length - 1; i >= 0; i--) { G.props[i].update(sdt, G); if (G.props[i].dead) G.props.splice(i, 1); }
+    if (p.state !== "dead") G.pushProps();
     for (i = G.projectiles.length - 1; i >= 0; i--) { G.projectiles[i].update(sdt, G); if (G.projectiles[i].dead) G.projectiles.splice(i, 1); }
     for (i = G.hazards.length - 1; i >= 0; i--) { G.hazards[i].update(sdt, G); if (G.hazards[i] && G.hazards[i].dead) G.hazards.splice(i, 1); }
     for (i = G.orbs.length - 1; i >= 0; i--) { G.orbs[i].update(sdt, G); if (G.orbs[i].dead) G.orbs.splice(i, 1); }
     for (i = G.birds.length - 1; i >= 0; i--) { G.birds[i].update(sdt, G); if (G.birds[i].dead) G.birds.splice(i, 1); }
-    for (i = G.ecos.length - 1; i >= 0; i--) { G.ecos[i].update(sdt, G); if (G.ecos[i].dead) G.ecos.splice(i, 1); }
-    G.resolveCombat();
+    for (i = G.crosses.length - 1; i >= 0; i--) { G.crosses[i].update(sdt, G); if (G.crosses[i].dead) G.crosses.splice(i, 1); }
+    SS.updateCorpses(sdt, G);
+    G.room.updateRopes(sdt, G);
+    if (G.state === "play") G.resolveCombat();
     var objs = G.room.objects;
     for (i = 0; i < objs.length; i++) { objs[i].t += sdt; if (objs[i].flash > 0) objs[i].flash -= sdt; }
 
     G.particles.update(sdt, G.room, G.time);
-    SS.BG.update(sdt, G.room.zone, G.view.w, G.view.h);
+    SS.BG.update(sdt, G.room.zone, G.view.w, G.view.h, G.room);
     SS.BG.ambient(sdt, G.room, G.particles, G.cam.x, G.cam.y, G.view.w, G.view.h);
     G.updateCamera(sdt);
-    G.updateInteract();
+    if (G.state === "play") G.updateInteract();
     if (!G.transitioning && p.state !== "dead" && p.state !== "hazard") G.checkExits();
     if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 22);
 
@@ -661,7 +781,10 @@
     ctx.fillStyle = "#050507";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     var s = scale * dpr;
-    if (G.state === "title" || !G.room) renderTitle(s);
+    if (G.state === "intro") {
+      ctx.setTransform(s, 0, 0, s, 0, 0);
+      SS.cine.draw(ctx, G.view.w, G.view.h, G.time);
+    } else if (G.state === "title" || !G.room) renderTitle(s);
     else renderWorld(s);
     if (G.fade.a > 0) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -675,9 +798,12 @@
     ctx.setTransform(s, 0, 0, s, 0, 0);
     SS.BG.draw(ctx, r, G.cam.x, G.cam.y, v.w, v.h, G.time);
     ctx.setTransform(s, 0, 0, s, -G.cam.x * s, -G.cam.y * s);
-    r.draw(ctx, G.cam.x, G.cam.y, G.cam.x + v.w, G.cam.y + v.h, G.time);
+    r.drawBack(ctx, G.cam.x, G.cam.y, G.cam.x + v.w, G.cam.y + v.h, G.time);
+    r.draw(ctx, G.cam.x, G.cam.y, G.cam.x + v.w, G.cam.y + v.h, G.time, null);
+    r.drawRopes(ctx, G.time);
     G.particles.draw(ctx, G.cam.x, G.cam.y, G.cam.x + v.w, G.cam.y + v.h, G.time);
     ctx.setTransform(s, 0, 0, s, 0, 0);
+    SS.BG.drawFront(ctx, r, G.cam.x, G.cam.y, v.w, v.h, G.time);
     SS.BG.drawOverlay(ctx, r, v.w, v.h, v.w / 2, v.h / 2);
   }
 
@@ -689,12 +815,16 @@
     SS.BG.draw(ctx, room, cam.x, cam.y, v.w, v.h, G.time);
     ctx.setTransform(s, 0, 0, s, (-cam.x + sx) * s, (-cam.y + sy) * s);
     var x0 = cam.x, y0 = cam.y, x1 = cam.x + v.w, y1 = cam.y + v.h;
+    room.drawBack(ctx, x0, y0, x1, y1, G.time);
     G.drawObjects(ctx, true);
-    room.draw(ctx, x0, y0, x1, y1, G.time);
+    room.draw(ctx, x0, y0, x1, y1, G.time, G);
+    room.drawRopes(ctx, G.time);
     G.drawObjects(ctx, false);
+    for (i = 0; i < G.props.length; i++) G.props[i].draw(ctx);
     for (i = 0; i < G.birds.length; i++) G.birds[i].draw(ctx, G.time);
-    for (i = 0; i < G.ecos.length; i++) G.ecos[i].draw(ctx, G.time);
-    for (i = 0; i < G.enemies.length; i++) G.enemies[i].draw(ctx, G.time);
+    for (i = 0; i < G.crosses.length; i++) G.crosses[i].draw(ctx, G.time);
+    SS.drawCorpses(ctx, G);
+    for (i = 0; i < G.enemies.length; i++) G.enemies[i].draw(ctx, G.time, G);
     if (G.boss) G.boss.draw(ctx, G, G.time);
     G.player.draw(ctx, G, G.time);
     for (i = 0; i < G.hazards.length; i++) G.hazards[i].draw(ctx, G, G.time);
@@ -703,6 +833,7 @@
     G.particles.draw(ctx, x0, y0, x1, y1, G.time);
     G.drawPrompt(ctx);
     ctx.setTransform(s, 0, 0, s, 0, 0);
+    SS.BG.drawFront(ctx, room, cam.x, cam.y, v.w, v.h, G.time);
     SS.BG.drawOverlay(ctx, room, v.w, v.h, G.player.cx() - cam.x, G.player.cy() - cam.y);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     SS.ui.drawHUD(ctx, cssW, cssH, G);
@@ -710,135 +841,30 @@
 
   /** Objetos del escenario. "behind" = lo que va detrás del terreno. */
   G.drawObjects = function (ctx, behind) {
-    var objs = G.room.objects, t = G.time, s = G.save;
+    var objs = G.room.objects, t = G.time;
     for (var i = 0; i < objs.length; i++) {
-      var o = objs[i], x = o.x, y = o.y, cx = x + T / 2, by = y + T;
-      if (behind !== (o.kind === "gate")) continue;
-      switch (o.kind) {
-        case "bench": {
-          var lit = s.bench === G.room.id;
-          ctx.fillStyle = "#1c1718";
-          ctx.fillRect(cx - 15, by - 11, 30, 4);
-          ctx.fillRect(cx - 13, by - 7, 3, 7);
-          ctx.fillRect(cx + 10, by - 7, 3, 7);
-          ctx.fillRect(cx - 15, by - 20, 3, 10);
-          ctx.fillStyle = "#3c3233";
-          ctx.fillRect(cx - 15, by - 11, 30, 1.5);
-          // farol
-          ctx.strokeStyle = "#1c1718"; ctx.lineWidth = 1.5;
-          ctx.beginPath(); ctx.moveTo(cx + 20, by); ctx.lineTo(cx + 20, by - 30); ctx.lineTo(cx + 15, by - 30); ctx.stroke();
-          ctx.fillStyle = "#1c1718"; ctx.fillRect(cx + 12, by - 30, 6, 7);
-          SS.drawGlow(ctx, cx + 15, by - 26, lit ? 34 : 18, "255,200,130", lit ? 0.55 + Math.sin(t * 3) * 0.05 : 0.25);
-          ctx.fillStyle = lit ? "#ffe2b0" : "#a07a50";
-          ctx.fillRect(cx + 13.5, by - 28, 3, 3);
-          break;
-        }
-        case "tablet": {
-          var near = G.interact === o;
-          ctx.fillStyle = "#1a1719";
-          ctx.beginPath();
-          ctx.moveTo(cx - 9, by); ctx.lineTo(cx - 9, by - 22); ctx.quadraticCurveTo(cx, by - 30, cx + 9, by - 22); ctx.lineTo(cx + 9, by);
-          ctx.fill();
-          ctx.strokeStyle = near ? "rgba(170,230,255,0.9)" : "rgba(170,230,255,0.25)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          for (var l = 0; l < 4; l++) { ctx.moveTo(cx - 5, by - 20 + l * 4); ctx.lineTo(cx + 5 - (l % 2) * 3, by - 20 + l * 4); }
-          ctx.stroke();
-          if (near) SS.drawGlow(ctx, cx, by - 16, 22, "160,220,255", 0.3);
-          break;
-        }
-        case "npc": {
-          var sway = Math.sin(t * 1.2) * 0.5;
-          var P = { lean: -1 + sway, bob: 8, tF: 1.45, sF: -1.5, tB: 1.3, sB: -1.4, aF: 0.9, fF: 0.9, aB: 0.3, fB: 0.8, rot: 0 };
-          var parts = SS.drawStickFigure(ctx, cx - 7 - 4, by - 34, 14, 34, -1, P, "#0a080b", 1);
-          ctx.fillStyle = "#2a2126";
-          ctx.beginPath();
-          ctx.moveTo(parts.head.x - 8, parts.head.y + 9);
-          ctx.quadraticCurveTo(parts.head.x - 8, parts.head.y - 10, parts.head.x + 1, parts.head.y - 9);
-          ctx.quadraticCurveTo(parts.head.x + 8, parts.head.y - 4, parts.head.x + 7, parts.head.y + 9);
-          ctx.fill();
-          ctx.strokeStyle = "#0a080b"; ctx.lineWidth = 1.6;
-          ctx.beginPath(); ctx.moveTo(parts.hand.x, parts.hand.y); ctx.lineTo(parts.hand.x - 2, by); ctx.stroke();
-          SS.drawGlow(ctx, cx - 18, by - 6, 26, "255,190,120", 0.45 + Math.sin(t * 4) * 0.05);
-          ctx.fillStyle = "#3a2c22"; ctx.fillRect(cx - 21, by - 9, 6, 9);
-          ctx.fillStyle = "#ffd59a"; ctx.fillRect(cx - 19.5, by - 7, 3, 4);
-          ctx.fillStyle = "#e9f4ff";
-          ctx.fillRect(parts.head.x - 3, parts.head.y - 1, 1.5, 1.5);
-          break;
-        }
-        case "altar": {
-          ctx.fillStyle = "#1b1a1f";
-          ctx.fillRect(cx - 10, by - 14, 20, 14);
-          ctx.fillRect(cx - 13, by - 17, 26, 4);
-          if (!o.taken) {
-            var fy = by - 32 + Math.sin(t * 2) * 3;
-            SS.drawGlow(ctx, cx, fy, 34, "170,220,255", 0.6);
-            ctx.fillStyle = "#e8f6ff";
-            ctx.beginPath(); ctx.arc(cx, fy, 4, 0, 6.283); ctx.fill();
-            for (var k = 0; k < 3; k++) {
-              var a = t * 2 + k * 2.09;
-              ctx.fillRect(cx + Math.cos(a) * 11 - 1, fy + Math.sin(a) * 4 - 1, 2, 2);
-            }
-          }
-          break;
-        }
-        case "relic": {
-          var ry = by - 16 + Math.sin(t * 2.5) * 2.5;
-          SS.drawGlow(ctx, cx, ry, 18, "255,210,120", 0.55);
-          ctx.fillStyle = "#ffdf9a";
-          ctx.beginPath(); ctx.moveTo(cx, ry - 6); ctx.lineTo(cx + 4, ry); ctx.lineTo(cx, ry + 6); ctx.lineTo(cx - 4, ry); ctx.closePath(); ctx.fill();
-          break;
-        }
-        case "fragment": {
-          var fy2 = by - 16 + Math.sin(t * 2) * 3, pul = 0.8 + Math.sin(t * 5) * 0.2;
-          SS.drawGlow(ctx, cx, fy2, 26 * pul, "220,235,255", 0.6);
-          ctx.fillStyle = "#ffffff";
-          ctx.beginPath(); ctx.moveTo(cx, fy2 - 8); ctx.lineTo(cx + 5, fy2); ctx.lineTo(cx, fy2 + 8); ctx.lineTo(cx - 5, fy2); ctx.closePath(); ctx.fill();
-          break;
-        }
-        case "deposit": {
-          var fl = o.flash > 0;
-          var crack = 4 - o.hp;
-          SS.drawGlow(ctx, cx, by - 10, 20, "160,240,220", 0.3);
-          ctx.fillStyle = fl ? "#ffffff" : "#9fd9cf";
-          ctx.beginPath(); ctx.moveTo(cx - 9, by); ctx.lineTo(cx - 6, by - 16); ctx.lineTo(cx - 2, by); ctx.fill();
-          ctx.beginPath(); ctx.moveTo(cx - 3, by); ctx.lineTo(cx + 1, by - 22 + crack * 2); ctx.lineTo(cx + 5, by); ctx.fill();
-          ctx.beginPath(); ctx.moveTo(cx + 3, by); ctx.lineTo(cx + 8, by - 12); ctx.lineTo(cx + 10, by); ctx.fill();
-          ctx.fillStyle = "rgba(255,255,255,0.6)";
-          ctx.fillRect(cx, by - 18 + crack * 2, 1, 8);
-          break;
-        }
-        case "gate": {
-          var gx = o.x + o.w / 2, gy = o.y + o.h / 2, open = s.bosses.verdugo;
-          ctx.fillStyle = "#151a1d";
-          ctx.fillRect(o.x - 6, o.y - 12, o.w + 6, o.h + 12);
-          ctx.strokeStyle = open ? "rgba(140,230,255,0.9)" : "rgba(120,150,160,0.35)";
-          ctx.lineWidth = 2;
-          ctx.beginPath(); ctx.arc(gx, gy, 16, 0, 6.283); ctx.stroke();
-          ctx.beginPath(); ctx.arc(gx, gy, 9, 0, 6.283); ctx.moveTo(gx, gy - 16); ctx.lineTo(gx, gy + 16); ctx.moveTo(gx - 16, gy); ctx.lineTo(gx + 16, gy); ctx.stroke();
-          if (open) SS.drawGlow(ctx, gx, gy, 44, "120,220,255", 0.35 + Math.sin(t * 2) * 0.08);
-          break;
-        }
-      }
+      var o = objs[i];
+      if (behind !== (o.kind === "gate" || o.kind === "stand" || o.kind === "ring")) continue;
+      if (SS.drawObject[o.kind]) SS.drawObject[o.kind](ctx, o, t, G);
     }
   };
 
   G.drawPrompt = function (ctx) {
     var o = G.interact;
     if (!o || G.state !== "play") return;
-    var labels = { bench: "Descansar", tablet: "Leer", npc: "Hablar", altar: "Tomar", gate: "Examinar" };
-    var x = o.kind === "gate" ? o.x - 10 : o.x + T / 2;
-    var y = (o.kind === "gate" ? o.y : o.y) - 14 + Math.sin(G.time * 4) * 2;
+    var labels = { stand: "Beber", tablet: "Leer", npc: "Hablar", altar: "Tomar", gate: "Examinar" };
+    var x = o.kind === "gate" ? o.x - 10 : o.x + T / 2 + (o.kind === "stand" ? -22 : 0);
+    var y = o.y - (o.kind === "stand" ? 30 : 14) + Math.sin(G.time * 4) * 2;
     var key = G.touchMode() ? "▲" : SS.input.keyName(SS.input.keymap.up[0]);
     var txt = key + "  " + labels[o.kind];
-    ctx.font = "600 9px Georgia, serif";
-    var w = ctx.measureText(txt).width + 12;
-    ctx.fillStyle = "rgba(8,8,12,0.75)";
+    ctx.font = "italic 600 10px " + SS.FONT;
+    var w = ctx.measureText(txt).width + 14;
+    ctx.fillStyle = "rgba(8,8,12,0.78)";
     ctx.fillRect(x - w / 2, y - 9, w, 14);
-    ctx.strokeStyle = "rgba(200,225,255,0.35)";
+    ctx.strokeStyle = "rgba(230,200,170,0.4)";
     ctx.lineWidth = 0.8;
     ctx.strokeRect(x - w / 2, y - 9, w, 14);
-    ctx.fillStyle = "#e9f2ff";
+    ctx.fillStyle = "#f2e8da";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(txt, x, y - 2);
@@ -855,5 +881,5 @@
     if (G.state === "play") SS.ui.openPause();
   };
 
-  window.addEventListener("load", G.init);
+  window.addEventListener("load", G.boot);
 })();

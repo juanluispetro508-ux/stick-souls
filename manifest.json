@@ -1,7 +1,7 @@
 {
   "name": "Stick Souls",
   "short_name": "Stick Souls",
-  "description": "Metroidvania de acción con stickmans en un reino sin alma.",
+  "description": "Metroidvania oscuro: el guardián de capucha roja desciende para rescatar a la princesa del Rey Vacío.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "fullscreen",
@@ -10,7 +10,17 @@
   "theme_color": "#0b0b10",
   "lang": "es",
   "icons": [
-    { "src": "assets/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "assets/icono-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }

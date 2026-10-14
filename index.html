@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Stick Souls: metroidvania de acción con stickmans. Explora un reino subterráneo sin alma.">
+  <meta name="description" content="Stick Souls: metroidvania oscuro. El guardián de capucha roja desciende para rescatar a la princesa del Rey Vacío.">
   <title>Stick Souls</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="assets/icono-192.png">
@@ -26,10 +26,13 @@
           <svg viewBox="0 0 24 24" width="20" height="20"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
         </button>
       </div>
+      <button id="skip" type="button">Saltar introducción ⏭</button>
       <div id="area-title"><div class="at-zone"></div><div class="at-line"></div><div class="at-room"></div></div>
       <div id="room-title"></div>
+      <div id="bosscard"><img alt=""><div class="bc-text"><div class="bc-sub"></div><div class="bc-name"></div></div></div>
       <div id="bossbar"><div class="bb-name"></div><div class="bb-track"><div class="bb-lag"></div><div class="bb-fill"></div></div></div>
       <div id="toast"></div>
+      <div id="loading">Encendiendo la llama…</div>
     </div>
 
     <div id="touch" aria-hidden="true">
@@ -37,6 +40,12 @@
       <div class="tb dpad" id="t-left" data-act="left">◀</div>
       <div class="tb dpad" id="t-right" data-act="right">▶</div>
       <div class="tb dpad" id="t-down" data-act="down">▼</div>
+      <div class="tb act small" id="t-heal" data-act="heal">
+        <svg viewBox="0 0 24 24" width="55%" height="55%"><path d="M8 6h8l1 13q-5 3-10 0z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="10.5" y="2.5" width="3" height="3.5" fill="currentColor"/></svg>
+        <small>Petaca</small></div>
+      <div class="tb act small" id="t-hook" data-act="hook">
+        <svg viewBox="0 0 24 24" width="55%" height="55%"><path d="M12 3v11M12 14c-4 0-6-2-6-5M12 14c4 0 6-2 6-5M9 3h6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="18.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <small>Gancho</small></div>
       <div class="tb act" id="t-special" data-act="special"><span>✦</span><small>Hab.</small></div>
       <div class="tb act" id="t-dodge" data-act="dodge"><span>»</span><small>Esquiva</small></div>
       <div class="tb act" id="t-attack" data-act="attack"><span>⚔</span><small>Ataque</small></div>
@@ -46,13 +55,14 @@
 
   <div id="ui">
     <section id="m-main" class="screen menu main">
-      <h1 class="title">STICK <span>SOULS</span></h1>
-      <p class="subtitle">Un reino sin alma te espera bajo la ceniza</p>
-      <button data-cmd="new" class="primary">Jugar</button>
+      <img class="hero" src="assets/arte/k_frente.png" alt="">
+      <h1 class="title">Stick <span>Souls</span></h1>
+      <p class="subtitle">La princesa espera bajo la ceniza</p>
+      <button data-cmd="new" class="primary">Nueva partida</button>
       <button data-cmd="continue" id="btn-continue">Continuar</button>
       <button data-cmd="controls">Controles</button>
       <button data-cmd="options">Opciones</button>
-      <p class="foot">Fase 1 · Refugio de Ceniza y Bosque Marchito</p>
+      <p class="foot">Refugio de Ceniza y Bosque Marchito · versión 2</p>
     </section>
 
     <section id="m-pause" class="screen menu">
@@ -62,7 +72,7 @@
       <button data-cmd="inventory">Inventario</button>
       <button data-cmd="options">Opciones</button>
       <button data-cmd="controls">Controles</button>
-      <button data-cmd="rebench">Volver al último banco</button>
+      <button data-cmd="rebench">Volver al último puesto</button>
       <button data-cmd="quit">Menú principal</button>
     </section>
 
@@ -84,9 +94,9 @@
     <section id="m-controls" class="screen menu wide">
       <h2>Controles</h2>
       <table class="ctl"><tbody id="ctl-table"></tbody></table>
-      <p class="muted small">Ratón: clic izquierdo también ataca. Mantén arriba o abajo al atacar para golpear en esa dirección. Abajo + Saltar baja de una plataforma.</p>
+      <p class="muted small">Ratón: clic izquierdo ataca, clic derecho lanza el gancho. Ataques seguidos alternan el tajo de ida y de vuelta. Arriba + ataque: tajo hacia arriba. En el aire, abajo + ataque: estocada desde arriba (rebota en enemigos y púas). Abajo + saltar baja de una plataforma. Colgado del gancho: arriba recoge la cadena, abajo la suelta, saltar te lanza.</p>
       <h3>Celular</h3>
-      <p class="muted small">◀ ▶ moverse · ▲ interactuar y golpe hacia arriba · ▼ golpe hacia abajo en el aire · <b>Salto</b> (mantén para saltar más alto) · <b>Ataque</b> · <b>Esquiva</b> · <b>Hab.</b> mantén para el golpe cargado. Puedes pulsar varios botones a la vez y deslizar el dedo entre ellos.</p>
+      <p class="muted small">◀ ▶ moverse · ▲ interactuar y tajo hacia arriba · ▼ estocada hacia abajo en el aire · <b>Salto</b> (mantén para saltar más alto) · <b>Ataque</b> · <b>Esquiva</b> · <b>Hab.</b> mantén para el golpe cargado · <b>Gancho</b> · <b>Petaca</b> para curarte. Puedes pulsar varios botones a la vez y deslizar el dedo entre ellos.</p>
       <button data-cmd="reset-keys">Restablecer teclas</button>
       <button data-cmd="back">Volver</button>
     </section>
@@ -98,16 +108,16 @@
     </section>
 
     <section id="m-map" class="screen map">
-      <div class="map-head"><h2>Mapa</h2><span id="map-where"></span></div>
+      <div class="map-head"><h2>Mapa</h2><span id="map-where"></span><button data-cmd="map-fit" id="map-fit" class="mini">Ver todo</button></div>
       <canvas id="map-canvas"></canvas>
       <div class="map-legend">
-        <span><i class="lg bench"></i>Banco</span><span><i class="lg you"></i>Tú</span><span><i class="lg eco"></i>Eco</span>
+        <span><i class="lg bench"></i>Puesto</span><span><i class="lg you"></i>Tú</span><span><i class="lg eco"></i>Cruz</span>
         <span>☠ Jefe</span><span>? Sin explorar</span>
       </div>
       <button data-cmd="close-map">Cerrar</button>
     </section>
 
-    <section id="m-bench" class="screen menu"></section>
+    <section id="m-stand" class="screen menu stand"></section>
 
     <section id="m-confirm" class="screen menu small">
       <p id="c-text"></p>
@@ -116,7 +126,7 @@
     </section>
 
     <section id="m-end" class="screen menu wide">
-      <h2>Fin de la primera fase</h2>
+      <h2>Fin de esta parte del viaje</h2>
       <div id="end-body"></div>
       <button data-cmd="end-continue" class="primary">Seguir explorando</button>
       <button data-cmd="end-new">Nueva partida</button>
@@ -133,12 +143,18 @@
   <script src="js/audio.js"></script>
   <script src="js/input.js"></script>
   <script src="js/rooms.js"></script>
+  <script src="js/rooms_data.js"></script>
+  <script src="js/physics.js"></script>
   <script src="js/world.js"></script>
   <script src="js/particles.js"></script>
   <script src="js/bg.js"></script>
+  <script src="js/skeleton.js"></script>
   <script src="js/player.js"></script>
   <script src="js/enemies.js"></script>
   <script src="js/boss.js"></script>
+  <script src="js/dog.js"></script>
+  <script src="js/objects.js"></script>
+  <script src="js/cinematic.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/game.js"></script>
 </body>
